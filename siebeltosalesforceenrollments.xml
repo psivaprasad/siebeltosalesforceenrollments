@@ -1,0 +1,291 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:salesforce="http://www.mulesoft.org/schema/mule/salesforce" xmlns:batch="http://www.mulesoft.org/schema/mule/batch"
+	xmlns:os="http://www.mulesoft.org/schema/mule/os"
+	xmlns:siebel="http://www.mulesoft.org/schema/mule/siebel" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/siebel http://www.mulesoft.org/schema/mule/siebel/current/mule-siebel.xsd
+http://www.mulesoft.org/schema/mule/os http://www.mulesoft.org/schema/mule/os/current/mule-os.xsd
+http://www.mulesoft.org/schema/mule/batch http://www.mulesoft.org/schema/mule/batch/current/mule-batch.xsd
+http://www.mulesoft.org/schema/mule/salesforce http://www.mulesoft.org/schema/mule/salesforce/current/mule-salesforce.xsd">
+	<siebel:siebel-config name="Siebel_JDB_Siebel" doc:name="Siebel JDB Siebel" doc:id="a243c9fe-2778-4eff-a064-5835524f8098" >
+		<siebel:basic-connection user="${user}" password="${password}" server="${server}" serverName="${servername}" objectManager="${objectmanager}"/>
+	</siebel:siebel-config>
+	<configuration-properties doc:name="Configuration properties" doc:id="1d4c6c22-72a3-48e0-80b5-48e9d8e14480" file="config.properties" />
+	<salesforce:sfdc-config name="Salesforce_Config" doc:name="Salesforce Config" doc:id="d8677f8f-39d8-4262-b8a9-7bd9c1cdf84b" >
+		<salesforce:cached-basic-connection username="${sfdc.username}" password="${sfdc.password}" url="${sfdc.url}"/>
+	</salesforce:sfdc-config>
+	<flow name="siebeltosalesforceenrollmentsFlow" doc:id="0805931a-6f9c-4864-a32b-7cf5fb6c13b8" >
+		<scheduler doc:name="Scheduler" doc:id="3925733b-b394-45a1-b9be-9b65e1be36f1" >
+			<scheduling-strategy >
+				<fixed-frequency frequency="10" timeUnit="MINUTES"/>
+			</scheduling-strategy>
+		</scheduler>
+		<logger level="INFO" doc:name="Display Start Message" doc:id="2fb9ee6d-927d-47ca-b41b-1ed78d31be03" message='#["\n--------------------------------\n   Fetching Siebel Enrollments\n--------------------------------\n"]'/>
+		<os:retrieve doc:name="Retrieve Last Modified Date" doc:id="24f916cb-beaf-4bde-b8a0-dc083881f431" key="siebelQueryDate" target="siebelQueryDate">
+			<os:default-value ><![CDATA[#[p('qDate')]]]></os:default-value>
+		</os:retrieve>
+		<ee:transform doc:name="Query Siebel" doc:id="03252c72-990a-4f9a-bae9-ff8038a95195" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/java
+---
+{
+	"fields" : ["Id","LTA Access Requirements","Contact Coach License Type","LTA Any Other Requirements","LTA Has Scheduled Payment","Contact Coach License Type",
+		         "Registration Description","LTA Communication Method","Completed Date","Registration Unit","Contact Coach CRB Date","LTA Emergency Contact First Name","LTA Emergency Contact Last Name",
+		         "LTA Emergency Contact Phone Number","Registration Date","LTA Enrollment Expiry Date","LTA External Enroll Id","LTA Coach First Aid Expiry","LTA Guardian First Name",
+		          "LTA Guardian Last Name","LTA Guardian Relationship","LTA Level of Tennis","LTA Open Seats","Contact Id","Contact Coach Licence Date","Created By","Updated By",
+		        "LTA Photography Permission","LTA Rating Letter","Status","LTA Tennis Wheelchair Size","LTA Level Of Visual Impairment","Class Id","Order Line Item",
+		        "LTA Course Comments","LTA LD Status Update Flag","LTA Override Prerequisites","Registration Num","Updated","LTA School Id","Created"
+		        
+			  ],
+	records: 10,
+	viewMode: 3,
+	
+	searchSpec: {
+		"Updated": "< '" ++ vars.siebelQueryDate as String ++ "'",
+		}
+}
+
+as Object {
+	class : "org.mule.modules.siebel.api.params.QueryDefinition"
+}
+ ]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<siebel:query-business-components doc:name="Query business components" doc:id="d833a2cd-0daf-433a-93b0-7ed342e22e5f" config-ref="Siebel_JDB_Siebel" businessObjectComponentType="LTA Training Class Registration.LTA Training Class Registration"/>
+		<ee:transform doc:name="Transform Message" doc:id="aca7065b-780b-4170-8aa8-e188642a9d4d" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/java
+---
+payload]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<choice doc:name="Migration or Sync" doc:id="1c05d387-1980-43aa-951f-45ff8ceb3dcf" >
+			<when doc:id="d73abbc9-ef1d-412a-89c7-e1719acaf6ed" expression="#[p('jobType')==&quot;Migration&quot; and not isEmpty(payload)]">
+				<logger level="INFO" doc:name="Display Migration Message" doc:id="8a1ee85c-b572-4fb0-827f-4393014d2f2b" message='#["\n--------------------------------\n   Migrating Siebel EnrollMents\n--------------------------------\n"]'/>
+				<os:store doc:name="Store Latest Date" doc:id="2c960cd9-3513-4ffe-a05c-3d0fa021e7e9" key="siebelQueryDate">
+					<os:value ><![CDATA[#[max(payload."Updated")]]]></os:value>
+				</os:store>
+				<flow-ref doc:name="Call Migration Flow" doc:id="b97b79d1-e8f1-404e-8cbd-815f3be921ca" name="Migrationflow"/>
+			</when>
+			<when expression="#[p('jobType')==&quot;Sync&quot; and not isEmpty(payload)]">
+				<logger level="INFO" doc:name="Display Sync Message" doc:id="e1fdb5aa-d4fe-4f4c-9474-89e59684dfbf" message='#["\n--------------------------------\n   Sync Siebel Enrollments\n--------------------------------\n"]'/>
+				<os:store doc:name="Store Latest Date" doc:id="9a413b65-5644-446f-a9e0-92ef3d7794aa" key="siebelQueryDate">
+					<os:value ><![CDATA[#[max(payload."Updated")]]]></os:value>
+				</os:store>
+				<flow-ref doc:name="Call Sync Flow" doc:id="bcae90e2-8394-4d43-85a1-c8f9210e53d2" name="Synflow"/>
+			</when>
+			<otherwise >
+				<logger level="INFO" doc:name="Default Message" doc:id="c62faee7-fa8b-46b1-97df-0738d207f6d0" message='#["Default Case"]'/>
+			</otherwise>
+		</choice>
+	</flow>
+	<flow name="Migrationflow" doc:id="79ec4d6b-4351-4fd4-a77d-5759003ce9bd" >
+		<batch:job jobName="lta_cep_siebelqueryBatch_Job" doc:id="2fcec840-c717-4113-ab0e-da321a7b3ad2" >
+			<batch:process-records >
+				<batch:step name="Batch_Step" doc:id="6f02e764-d64d-4927-86e1-95fa688fdea5" >
+					<ee:transform doc:name="Mapping to Salesforce" doc:id="85bd7f5c-6420-4240-a3a8-d12e734f6e3a" >
+						<ee:message >
+							<ee:set-payload ><![CDATA[%dw 2.0
+output application/java
+fun normDate(String) = String replace ":00" with ":01"
+---
+{
+		(Class__r:
+		  
+		  {
+			SiebelID__c : payload."Class Id",
+			
+		   }) if payload."Class Id" != "",
+		   
+		
+		(Last_Name__r:
+			
+		{
+			SiebelID__c:payload."Contact Id",
+			
+		}) if payload."Contact Id" != "",
+		
+		
+		(School_Name__r:
+		{
+			SiebelID__c:payload."LTA School Id",
+			
+		}) if payload."LTA School Id" != "" ,
+		
+		
+		(Order_Line_Item__r:
+			{
+				SiebelID__c:payload."Order Line Item",
+			}) if payload."Order Line Item" != "",
+		
+	
+	(Siebel_Last_Modified_By__r:
+	{
+		SiebelID__c:payload."Updated By",
+	}) if payload."Updated By" != "",
+	
+	(Siebel_Created_By__r:
+	
+	{
+		SiebelID__c:payload."Created By",
+	}) if payload."Created By" != "",
+ 
+ Access_Requirements__c:payload."LTA Access Requirements",
+ SiebelID__c:payload.Id,
+ Source__c:"siebel",
+Accreditation_Expiry__c:if(payload."Contact Coach Licence Date"=='') null else payload."Contact Coach Licence Date" as Date {format: "MM/dd/yyyy"} as Date {format: "yyyy-MM-dd"},
+Additional_Comments__c :payload."LTA Course Comments",
+Any_Other_Requirements__c:payload."LTA Any Other Requirements",
+Awaiting_Payment__c:if(payload."LTA Has Scheduled Payment"== 'N') null else payload."LTA Has Scheduled Payment" as Number {format:"###"},
+Coach_License_Type__c:payload."Contact Coach License Type",
+Comments__c:payload."Registration Description",
+Communication_Method__c:payload."LTA Communication Method",
+Completed_Date__c:if(payload."Completed Date"=='') null else normDate(payload."Completed Date") as LocalDateTime {format: "MM/dd/yyyy HH:mm:ss"} as DateTime {format: "yyyy-MM-dd HH:mm:ss"},
+Credit__c:if(payload."Registration Unit"=='') null else payload."Registration Unit" as Number {format:"###"},
+DBS_Date__c:if(payload."Contact Coach CRB Date"=='') null else payload."Contact Coach CRB Date" as Date {format: "MM/dd/yyyy"} as Date {format: "yyyy-MM-dd"},
+Emergency_Contact_First_Name__c:payload."LTA Emergency Contact First Name",
+Emergency_Contact_Last_Name__c:payload."LTA Emergency Contact Last Name",
+Emergency_Contact_Phone__c:payload."LTA Emergency Contact Phone Number",
+Enrolled_Date__c:if(payload."Registration Date"=='') null else normDate(payload."Registration Date") as LocalDateTime {format: "MM/dd/yyyy HH:mm:ss"} as DateTime {format: "yyyy-MM-dd HH:mm:ss"},
+Enrollment_Expiry_Date__c:if(payload."LTA Enrollment Expiry Date"=='') null else normDate(payload."LTA Enrollment Expiry Date") as LocalDateTime {format: "MM/dd/yyyy HH:mm:ss"} as DateTime {format: "yyyy-MM-dd HH:mm:ss"},
+External_Enroll_Id__c:payload."LTA External Enroll Id",
+First_Aid_Expiry__c:if(payload."LTA Coach First Aid Expiry"=='') null else payload."LTA Coach First Aid Expiry" as Date {format: "MM/dd/yyyy"} as Date {format: "yyyy-MM-dd"},
+Guardian_First_Name__c:payload."LTA Guardian First Name",
+Guardian_Last_Name__c:payload."LTA Guardian Last Name",
+Guardian_Relationship__c:payload."LTA Guardian Relationship",
+Learn_Direct_Status_Update__c:if(payload."LTA LD Status Update Flag"=='') false else true,
+Level_of_Tennis__c:payload."LTA Level of Tennis",
+Open_Seats__c:if(payload."LTA Open Seats"=='') null else payload."LTA Open Seats" as Number {format:"###"},
+Override_Prerequisites__c:if(payload."LTA Override Prerequisites"=='') false else true,
+Photography_Permission__c:if(payload."LTA Photography Permission"=='') false else true,
+Rating_Letter__c:if(payload."LTA Rating Letter"=='') false else true,
+Registration__c:payload."Registration Num",
+Status__c:payload.Status,
+Tennis_Wheelchair_Size__c:payload."LTA Tennis Wheelchair Size",
+Visual_Impairment_Level__c:payload."LTA Level Of Visual Impairment",
+Siebel_Last_Modified_Date__c:if(payload."Updated" == '') null else normDate(payload.Updated) as LocalDateTime {format: "MM/dd/yyyy HH:mm:ss"} as DateTime {format: "yyyy-MM-dd HH:mm:ss"},
+Siebel_Created_Date__c:if(payload."Created"=='') null else normDate(payload.Created) as LocalDateTime {format: "MM/dd/yyyy HH:mm:ss"} as DateTime {format: "yyyy-MM-dd HH:mm:ss"}
+
+}
+]]></ee:set-payload>
+						</ee:message>
+					</ee:transform>
+					<batch:aggregator doc:name="Batch Aggregator" doc:id="a0d559dc-6904-40e3-8e29-06ece8a33418" size="10">
+						<salesforce:create-bulk doc:name="Create Records in Salesforce" doc:id="b3e2300d-9e0c-41e5-aa6c-ff8a745b841b" config-ref="Salesforce_Config" type="ODY_Enrollment__c"/>
+					</batch:aggregator>
+				</batch:step>
+			</batch:process-records>
+			<batch:on-complete >
+				<logger level="INFO" doc:name="Display Response" doc:id="fed5ab6b-e5d0-4b54-9c38-09e3959af022" message="#[output application/json
+---
+payload]"/>
+			</batch:on-complete>
+		</batch:job>
+	</flow>
+	<flow name="Synflow" doc:id="da735483-2fb4-4386-88ee-aa0313525e61" >
+		<batch:job jobName="lta_cep_siebelqueryBatch_Job1" doc:id="a7b094c3-167f-4cd5-b5cb-36ddfa90745b" >
+			<batch:process-records >
+				<batch:step name="Batch_Step1" doc:id="ef2e062a-241f-45d8-98a4-d17ee83f6ce1" >
+					<batch:aggregator doc:name="Batch Aggregator" doc:id="b2c865a5-f766-45f7-82bc-4be642aa2968" size="10">
+						<salesforce:upsert-bulk doc:name="Upsert Records to Salesforce" doc:id="dcaeb30e-1399-4b15-ba1f-11d1d9605236" config-ref="Salesforce_Config" type="ODY_Enrollment__c" externalIdFieldName="SiebelID__c"/>
+					</batch:aggregator>
+					<ee:transform doc:name="Mapping to Salesforce" doc:id="44cd6013-f11a-4848-9bc7-667ab0cc71ff" >
+						<ee:message >
+							<ee:set-payload ><![CDATA[%dw 2.0
+output application/java
+fun normDate(String) = String replace ":00" with ":01"
+---
+{
+		(Class__r:
+		  
+		  {
+			SiebelID__c : payload."Class Id",
+			
+		   }) if payload."Class Id" != "",
+		   
+		
+		(Last_Name__r:
+			
+		{
+			SiebelID__c:payload."Contact Id",
+			
+		}) if payload."Contact Id" != "",
+		
+		
+		(School_Name__r:
+		{
+			SiebelID__c:payload."LTA School Id",
+			
+		}) if payload."LTA School Id" != "" ,
+		
+		
+	(Order_Line_Item__r:
+			{
+				SiebelID__c:payload."Order Line Item",
+			}) if payload."Order Line Item" != "",
+			
+		
+	(Siebel_Last_Modified_By__r:
+	{
+		SiebelID__c:payload."Updated By",
+	}) if payload."Updated By" != "",
+	
+	(Siebel_Created_By__r:
+	
+	{
+		SiebelID__c:payload."Created By",
+	}) if payload."Created By" != "",
+ 
+ Access_Requirements__c:payload."LTA Access Requirements",
+ SiebelID__c:payload.Id,
+ Source__c:"siebel",
+Accreditation_Expiry__c:if(payload."Contact Coach Licence Date"=='') null else payload."Contact Coach Licence Date" as Date {format: "MM/dd/yyyy"} as Date {format: "yyyy-MM-dd"},
+Additional_Comments__c :payload."LTA Course Comments",
+Any_Other_Requirements__c:payload."LTA Any Other Requirements",
+Awaiting_Payment__c:if(payload."LTA Has Scheduled Payment"== 'N') null else payload."LTA Has Scheduled Payment" as Number {format:"###"},
+Coach_License_Type__c:payload."Contact Coach License Type",
+Comments__c:payload."Registration Description",
+Communication_Method__c:payload."LTA Communication Method",
+Completed_Date__c:if(payload."Completed Date"=='') null else normDate(payload."Completed Date") as LocalDateTime {format: "MM/dd/yyyy HH:mm:ss"} as DateTime {format: "yyyy-MM-dd HH:mm:ss"},
+Credit__c:if(payload."Registration Unit"=='') null else payload."Registration Unit" as Number {format:"###"},
+DBS_Date__c:if(payload."Contact Coach CRB Date"=='') null else payload."Contact Coach CRB Date" as Date {format: "MM/dd/yyyy"} as Date {format: "yyyy-MM-dd"},
+Emergency_Contact_First_Name__c:payload."LTA Emergency Contact First Name",
+Emergency_Contact_Last_Name__c:payload."LTA Emergency Contact Last Name",
+Emergency_Contact_Phone__c:payload."LTA Emergency Contact Phone Number",
+Enrolled_Date__c:if(payload."Registration Date"=='') null else normDate(payload."Registration Date") as LocalDateTime {format: "MM/dd/yyyy HH:mm:ss"} as DateTime {format: "yyyy-MM-dd HH:mm:ss"},
+Enrollment_Expiry_Date__c:if(payload."LTA Enrollment Expiry Date"=='') null else normDate(payload."LTA Enrollment Expiry Date") as LocalDateTime {format: "MM/dd/yyyy HH:mm:ss"} as DateTime {format: "yyyy-MM-dd HH:mm:ss"},
+External_Enroll_Id__c:payload."LTA External Enroll Id",
+First_Aid_Expiry__c:if(payload."LTA Coach First Aid Expiry"=='') null else payload."LTA Coach First Aid Expiry" as Date {format: "MM/dd/yyyy"} as Date {format: "yyyy-MM-dd"},
+Guardian_First_Name__c:payload."LTA Guardian First Name",
+Guardian_Last_Name__c:payload."LTA Guardian Last Name",
+Guardian_Relationship__c:payload."LTA Guardian Relationship",
+Learn_Direct_Status_Update__c:if(payload."LTA LD Status Update Flag"=='') false else true,
+Level_of_Tennis__c:payload."LTA Level of Tennis",
+Open_Seats__c:if(payload."LTA Open Seats"=='') null else payload."LTA Open Seats" as Number {format:"###"},
+Override_Prerequisites__c:if(payload."LTA Override Prerequisites"=='') false else true,
+Photography_Permission__c:if(payload."LTA Photography Permission"=='') false else true,
+Rating_Letter__c:if(payload."LTA Rating Letter"=='') false else true,
+Registration__c:payload."Registration Num",
+Status__c:payload.Status,
+Tennis_Wheelchair_Size__c:payload."LTA Tennis Wheelchair Size",
+Visual_Impairment_Level__c:payload."LTA Level Of Visual Impairment",
+Siebel_Last_Modified_Date__c:if(payload."Updated" == '') null else normDate(payload.Updated) as LocalDateTime {format: "MM/dd/yyyy HH:mm:ss"} as DateTime {format: "yyyy-MM-dd HH:mm:ss"},
+Siebel_Created_Date__c:if(payload."Created"=='') null else normDate(payload.Created) as LocalDateTime {format: "MM/dd/yyyy HH:mm:ss"} as DateTime {format: "yyyy-MM-dd HH:mm:ss"}
+
+}
+]]></ee:set-payload>
+						</ee:message>
+					</ee:transform>
+				</batch:step>
+			</batch:process-records>
+			<batch:on-complete >
+				<logger level="INFO" doc:name="Display Response" doc:id="b20e967d-2524-4925-ac4d-1dce33144bd1" message="#[output application/json
+---
+payload]"/>
+			</batch:on-complete>
+		</batch:job>
+	</flow>
+</mule>
